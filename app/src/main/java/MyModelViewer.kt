@@ -126,8 +126,8 @@ class MyModelViewer(
     private var resourceLoader: ResourceLoader
     private val readyRenderables = IntArray(128) // add up to 128 entities at a time
 
-    private val eyePos = arrayOf(0.0, 0.0, 2.0)
-    private val target = arrayOf(0.0, 0.0, -4.0)
+    private val eyePos = arrayOf(0.0, 0.0, 6.0)
+    private val target = arrayOf(0.0, 0.0, 0.0)
     private val upward = arrayOf(0.0, 1.0, 0.0)
 
     private var coinAngle = 0f
@@ -317,6 +317,8 @@ class MyModelViewer(
         gestureDetector.onTouchEvent(event)
     }
 
+    private val transform = FloatArray(16)
+
     private fun updateCoinRotation(deltaTime: Float) {
         // Apply friction
         val newVelocity = coinAngularVelocity * friction
@@ -330,27 +332,12 @@ class MyModelViewer(
         }
         coinAngle += coinAngularVelocity * deltaTime
 
-        // Apply to Filament object transform
         asset?.let {
-            val transform = FloatArray(16)
-
-            // Step 1: Set up rotation
             Matrix.setRotateM(transform, 0, coinAngle, 0f, 1f, 0f)
 
-            // Step 2: Apply translation AFTER rotation
-            // Note: This multiplies the rotation matrix by a translation
-            val translation = FloatArray(16)
-            Matrix.setIdentityM(translation, 0)
-            Matrix.translateM(translation, 0, 0f, 0f, -4f)
-
-            // Step 3: Combine translation * rotation
-            val finalTransform = FloatArray(16)
-            Matrix.multiplyMM(finalTransform, 0, translation, 0, transform, 0)
-
-            // Step 4: Apply to Filament
             engine.transformManager.setTransform(
                 engine.transformManager.getInstance(it.root),
-                finalTransform
+                transform
             )
         }
     }
