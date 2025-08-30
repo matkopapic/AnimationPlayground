@@ -1,8 +1,6 @@
 package com.matkopapic.animationplayground
 
 import android.opengl.Matrix
-import android.view.GestureDetector
-import android.view.GestureDetector.SimpleOnGestureListener
 import android.view.MotionEvent
 import android.view.Surface
 import android.view.SurfaceView
@@ -13,11 +11,9 @@ import com.google.android.filament.Engine
 import com.google.android.filament.Entity
 import com.google.android.filament.EntityManager
 import com.google.android.filament.Fence
-import com.google.android.filament.IndirectLight
 import com.google.android.filament.LightManager
 import com.google.android.filament.Renderer
 import com.google.android.filament.Scene
-import com.google.android.filament.Skybox
 import com.google.android.filament.SwapChain
 import com.google.android.filament.View
 import com.google.android.filament.Viewport
@@ -35,6 +31,7 @@ import com.google.android.filament.utils.max
 import com.google.android.filament.utils.scale
 import com.google.android.filament.utils.translation
 import com.google.android.filament.utils.transpose
+import com.matkopapic.animationplayground.com.matkopapic.animationplayground.MyGestureDetector
 import kotlinx.coroutines.Job
 import java.nio.Buffer
 import kotlin.math.abs
@@ -46,31 +43,6 @@ private const val kShutterSpeed = 1f / 125f
 private const val kSensitivity = 100f
 private const val defaultVelocity = 50f
 
-/**
- * Helps render glTF models into a [SurfaceView] or [TextureView] with an orbit controller.
- *
- * `ModelViewer` owns a Filament engine, renderer, swapchain, view, and scene. It allows clients
- * to access these objects via read-only properties. The viewer can display only one glTF scene
- * at a time, which can be scaled and translated into the viewing frustum by calling
- * [transformToUnitCube]. All ECS entities can be accessed and modified via the [asset] property.
- *
- * For GLB files, clients can call [loadModelGlb] and pass in a [Buffer] with the contents of the
- * GLB file. For glTF files, clients can call [loadModelGltf] and pass in a [Buffer] with the JSON
- * contents, as well as a callback for loading external resources.
- *
- * `ModelViewer` reduces much of the boilerplate required for simple Filament applications, but
- * clients still have the responsibility of adding an [IndirectLight] and [Skybox] to the scene.
- * Additionally, clients should:
- *
- * 1. Pass the model viewer into [SurfaceView.setOnTouchListener] or call its [onTouchEvent]
- *    method from your touch handler.
- * 2. Call [render] and [Animator.applyAnimation] from a `Choreographer` frame callback.
- *
- * NOTE: if its associated SurfaceView or TextureView has become detached from its window, the
- * ModelViewer becomes invalid and must be recreated.
- *
- * See `sample-gltf-viewer` for a usage example.
- */
 class MyModelViewer(
     val engine: Engine,
     private val uiHelper: UiHelper
@@ -114,7 +86,7 @@ class MyModelViewer(
 
     private lateinit var displayHelper: DisplayHelper
     private lateinit var cameraManipulator: Manipulator
-    private lateinit var gestureDetector: GestureDetector
+    private lateinit var gestureDetector: MyGestureDetector
     private var surfaceView: SurfaceView? = null
     private var textureView: TextureView? = null
 
@@ -126,9 +98,9 @@ class MyModelViewer(
     private var resourceLoader: ResourceLoader
     private val readyRenderables = IntArray(128) // add up to 128 entities at a time
 
-    private val eyePos = arrayOf(0.0, 0.0, 6.0)
-    private val target = arrayOf(0.0, 0.0, 0.0)
-    private val upward = arrayOf(0.0, 1.0, 0.0)
+    private val eyePos = arrayOf(0.0, 0.0, 6.0).toDoubleArray()
+    private val target = arrayOf(0.0, 0.0, 0.0).toDoubleArray()
+    private val upward = arrayOf(0.0, 1.0, 0.0).toDoubleArray()
 
     private var coinAngle = 0f
     private var coinAngularVelocity = defaultVelocity
@@ -164,30 +136,60 @@ class MyModelViewer(
         scene.addEntity(light)
     }
 
+//    constructor(
+//        surfaceView: SurfaceView,
+//        engine: Engine = Engine.create(),
+//        uiHelper: UiHelper = UiHelper(UiHelper.ContextErrorPolicy.DONT_CHECK),
+//        manipulator: Manipulator? = null
+//    ) : this(engine, uiHelper) {
+//        cameraManipulator = manipulator ?: Manipulator.Builder()
+//            .targetPosition(kDefaultObjectPosition.x, kDefaultObjectPosition.y, kDefaultObjectPosition.z)
+//            .viewport(surfaceView.width, surfaceView.height)
+//            .build(Manipulator.Mode.ORBIT)
+//
+//        this.surfaceView = surfaceView
+//        gestureDetector = GestureDetector(surfaceView.context, object : SimpleOnGestureListener(){
+//            override fun onFling(e1: MotionEvent?, e2: MotionEvent, velocityX: Float, velocityY: Float): Boolean {
+//                // Convert horizontal fling velocity into angular velocity
+//                val spinBoost = velocityX / 50f  // adjust scaling as needed
+//                coinAngularVelocity += spinBoost
+//                return true
+//            }
+//        })
+//        displayHelper = DisplayHelper(surfaceView.context)
+//        uiHelper.renderCallback = SurfaceCallback()
+//        uiHelper.attachTo(surfaceView)
+//        addDetachListener(surfaceView)
+//    }
+
     constructor(
-        surfaceView: SurfaceView,
+        textureView: TextureView,
         engine: Engine = Engine.create(),
         uiHelper: UiHelper = UiHelper(UiHelper.ContextErrorPolicy.DONT_CHECK),
         manipulator: Manipulator? = null
     ) : this(engine, uiHelper) {
         cameraManipulator = manipulator ?: Manipulator.Builder()
-            .targetPosition(kDefaultObjectPosition.x, kDefaultObjectPosition.y, kDefaultObjectPosition.z)
-            .viewport(surfaceView.width, surfaceView.height)
+            .targetPosition(target[0].toFloat(), target[1].toFloat(), target[2].toFloat())
+            .orbitHomePosition(eyePos[0].toFloat(), eyePos[1].toFloat(), eyePos[2].toFloat())
+            .viewport(textureView.width, textureView.height)
             .build(Manipulator.Mode.ORBIT)
 
-        this.surfaceView = surfaceView
-        gestureDetector = GestureDetector(surfaceView.context, object : SimpleOnGestureListener(){
-            override fun onFling(e1: MotionEvent?, e2: MotionEvent, velocityX: Float, velocityY: Float): Boolean {
-                // Convert horizontal fling velocity into angular velocity
-                val spinBoost = velocityX / 50f  // adjust scaling as needed
-                coinAngularVelocity += spinBoost
-                return true
-            }
-        })
-        displayHelper = DisplayHelper(surfaceView.context)
+        this.textureView = textureView
+//        gestureDetector = GestureDetector(textureView.context, object : SimpleOnGestureListener(){
+//
+//
+//            override fun onFling(e1: MotionEvent?, e2: MotionEvent, velocityX: Float, velocityY: Float): Boolean {
+//                // Convert horizontal fling velocity into angular velocity
+//                val spinBoost = velocityX / 50f  // adjust scaling as needed
+//                coinAngularVelocity += spinBoost
+//                return true
+//            }
+//        })
+        gestureDetector = MyGestureDetector(textureView, cameraManipulator)
+        displayHelper = DisplayHelper(textureView.context)
         uiHelper.renderCallback = SurfaceCallback()
-        uiHelper.attachTo(surfaceView)
-        addDetachListener(surfaceView)
+        uiHelper.attachTo(textureView)
+        addDetachListener(textureView)
     }
 
     /**
@@ -253,6 +255,7 @@ class MyModelViewer(
 
         // Add renderable entities to the scene as they become ready.
         asset?.let { populateScene(it) }
+        cameraManipulator.getLookAt(eyePos, target, upward)
         camera.lookAt(
             eyePos[0], eyePos[1], eyePos[2],
             target[0], target[1], target[2],
@@ -314,6 +317,13 @@ class MyModelViewer(
      * Handles a [MotionEvent] to enable one-finger orbit, two-finger pan, and pinch-to-zoom.
      */
     fun onTouchEvent(event: MotionEvent) {
+        when (event.action) {
+            MotionEvent.ACTION_DOWN,
+            MotionEvent.ACTION_MOVE -> coinAngularVelocity = 0f
+
+            MotionEvent.ACTION_CANCEL,
+            MotionEvent.ACTION_UP -> coinAngularVelocity = defaultVelocity
+        }
         gestureDetector.onTouchEvent(event)
     }
 

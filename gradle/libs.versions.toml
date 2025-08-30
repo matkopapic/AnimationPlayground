@@ -1,6 +1,6 @@
 [versions]
 agp = "8.8.0"
-filament = "1.36.0"
+filament = "1.57.1"
 kotlin = "2.0.0"
 coreKtx = "1.16.0"
 junit = "4.13.2"

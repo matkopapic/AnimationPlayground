@@ -2,6 +2,7 @@ package com.matkopapic.animationplayground
 
 import android.os.Bundle
 import android.view.SurfaceView
+import android.view.TextureView
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
@@ -32,7 +33,7 @@ class MainActivity : ComponentActivity() {
                     AndroidView(factory = { context ->
                         val renderer = ModelRenderer()
 
-                        SurfaceView(context).apply {
+                        TextureView(context).apply {
                             renderer.onSurfaceAvailable(this, lifecycle)
                         }
                     })
