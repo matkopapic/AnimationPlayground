@@ -1,17 +1,14 @@
 package com.matkopapic.animationplayground
 
 import android.opengl.Matrix
+import android.view.GestureDetector
 import android.view.MotionEvent
 import android.view.Surface
-import android.view.SurfaceView
 import android.view.TextureView
 import com.google.android.filament.Camera
-import com.google.android.filament.Colors
 import com.google.android.filament.Engine
-import com.google.android.filament.Entity
 import com.google.android.filament.EntityManager
 import com.google.android.filament.Fence
-import com.google.android.filament.LightManager
 import com.google.android.filament.Renderer
 import com.google.android.filament.Scene
 import com.google.android.filament.SwapChain
@@ -31,7 +28,7 @@ import com.google.android.filament.utils.max
 import com.google.android.filament.utils.scale
 import com.google.android.filament.utils.translation
 import com.google.android.filament.utils.transpose
-import com.matkopapic.animationplayground.com.matkopapic.animationplayground.MyGestureDetector
+import com.matkopapic.animationplayground.com.matkopapic.animationplayground.OrbitGestureDetector
 import kotlinx.coroutines.Job
 import java.nio.Buffer
 import kotlin.math.abs
@@ -42,22 +39,14 @@ private const val kAperture = 16f
 private const val kShutterSpeed = 1f / 125f
 private const val kSensitivity = 100f
 private const val defaultVelocity = 50f
+private const val normalizeSkinningWeights = true
 
 class MyModelViewer(
     val engine: Engine,
     private val uiHelper: UiHelper
 ) : android.view.View.OnTouchListener {
-    var asset: FilamentAsset? = null
-        private set
-
-    var animator: Animator? = null
-        private set
-
-    @Suppress("unused")
-    val progress
-        get() = resourceLoader.asyncGetLoadProgress()
-
-    var normalizeSkinningWeights = true
+    private var asset: FilamentAsset? = null
+    private var animator: Animator? = null
 
     var cameraFocalLength = 28f
         set(value) {
@@ -77,17 +66,17 @@ class MyModelViewer(
             updateCameraProjection()
         }
 
-    val scene: Scene
-    val view: View
-    val camera: Camera
-    val renderer: Renderer
-    @Entity
-    val light: Int
+    val scene: Scene = engine.createScene()
+    val view: View = engine.createView()
+    val camera: Camera = engine.createCamera(engine.entityManager.create()).apply {
+        setExposure(kAperture, kShutterSpeed, kSensitivity)
+    }
+    val renderer: Renderer = engine.createRenderer()
 
     private lateinit var displayHelper: DisplayHelper
     private lateinit var cameraManipulator: Manipulator
-    private lateinit var gestureDetector: MyGestureDetector
-    private var surfaceView: SurfaceView? = null
+    private lateinit var orbitGestureDetector: OrbitGestureDetector
+    private lateinit var flingGestureDetector: GestureDetector
     private var textureView: TextureView? = null
 
     private var fetchResourcesJob: Job? = null
@@ -104,63 +93,16 @@ class MyModelViewer(
 
     private var coinAngle = 0f
     private var coinAngularVelocity = defaultVelocity
-    private val friction = 0.98f // slow down over time
+    private val friction = 0.99f // slow down over time
 
     init {
-        renderer = engine.createRenderer()
-        scene = engine.createScene()
-        camera = engine.createCamera(engine.entityManager.create()).apply {
-            setExposure(kAperture, kShutterSpeed, kSensitivity)
-        }
-        view = engine.createView()
         view.scene = scene
         view.camera = camera
 
         materialProvider = UbershaderProvider(engine)
         assetLoader = AssetLoader(engine, materialProvider, EntityManager.get())
         resourceLoader = ResourceLoader(engine, normalizeSkinningWeights)
-
-        // Always add a direct light source since it is required for shadowing.
-        // We highly recommend adding an indirect light as well.
-
-        light = EntityManager.get().create()
-
-        val (r, g, b) = Colors.cct(6_500.0f)
-        LightManager.Builder(LightManager.Type.DIRECTIONAL)
-            .color(r, g, b)
-            .intensity(100_000.0f)
-            .direction(0.0f, -1.0f, 0.0f)
-            .castShadows(true)
-            .build(engine, light)
-
-        scene.addEntity(light)
     }
-
-//    constructor(
-//        surfaceView: SurfaceView,
-//        engine: Engine = Engine.create(),
-//        uiHelper: UiHelper = UiHelper(UiHelper.ContextErrorPolicy.DONT_CHECK),
-//        manipulator: Manipulator? = null
-//    ) : this(engine, uiHelper) {
-//        cameraManipulator = manipulator ?: Manipulator.Builder()
-//            .targetPosition(kDefaultObjectPosition.x, kDefaultObjectPosition.y, kDefaultObjectPosition.z)
-//            .viewport(surfaceView.width, surfaceView.height)
-//            .build(Manipulator.Mode.ORBIT)
-//
-//        this.surfaceView = surfaceView
-//        gestureDetector = GestureDetector(surfaceView.context, object : SimpleOnGestureListener(){
-//            override fun onFling(e1: MotionEvent?, e2: MotionEvent, velocityX: Float, velocityY: Float): Boolean {
-//                // Convert horizontal fling velocity into angular velocity
-//                val spinBoost = velocityX / 50f  // adjust scaling as needed
-//                coinAngularVelocity += spinBoost
-//                return true
-//            }
-//        })
-//        displayHelper = DisplayHelper(surfaceView.context)
-//        uiHelper.renderCallback = SurfaceCallback()
-//        uiHelper.attachTo(surfaceView)
-//        addDetachListener(surfaceView)
-//    }
 
     constructor(
         textureView: TextureView,
@@ -175,17 +117,15 @@ class MyModelViewer(
             .build(Manipulator.Mode.ORBIT)
 
         this.textureView = textureView
-//        gestureDetector = GestureDetector(textureView.context, object : SimpleOnGestureListener(){
-//
-//
-//            override fun onFling(e1: MotionEvent?, e2: MotionEvent, velocityX: Float, velocityY: Float): Boolean {
-//                // Convert horizontal fling velocity into angular velocity
-//                val spinBoost = velocityX / 50f  // adjust scaling as needed
-//                coinAngularVelocity += spinBoost
-//                return true
-//            }
-//        })
-        gestureDetector = MyGestureDetector(textureView, cameraManipulator)
+        flingGestureDetector = GestureDetector(textureView.context, object : GestureDetector.SimpleOnGestureListener(){
+            override fun onFling(e1: MotionEvent?, e2: MotionEvent, velocityX: Float, velocityY: Float): Boolean {
+                // Convert horizontal fling velocity into angular velocity
+                val spinBoost = velocityX / 50f  // adjust scaling as needed
+                coinAngularVelocity += spinBoost
+                return true
+            }
+        })
+        orbitGestureDetector = OrbitGestureDetector(textureView, cameraManipulator)
         displayHelper = DisplayHelper(textureView.context)
         uiHelper.renderCallback = SurfaceCallback()
         uiHelper.attachTo(textureView)
@@ -249,7 +189,6 @@ class MyModelViewer(
         if (!uiHelper.isReadyToRender) {
             return
         }
-
         // Allow the resource loader to finalize textures that have become ready.
         resourceLoader.asyncUpdateLoad()
 
@@ -299,23 +238,17 @@ class MyModelViewer(
                 materialProvider.destroy()
                 resourceLoader.destroy()
 
-                engine.destroyEntity(light)
                 engine.destroyRenderer(renderer)
                 engine.destroyView(this@MyModelViewer.view)
                 engine.destroyScene(scene)
                 engine.destroyCameraComponent(camera.entity)
                 EntityManager.get().destroy(camera.entity)
 
-                EntityManager.get().destroy(light)
-
                 engine.destroy()
             }
         })
     }
 
-    /**
-     * Handles a [MotionEvent] to enable one-finger orbit, two-finger pan, and pinch-to-zoom.
-     */
     fun onTouchEvent(event: MotionEvent) {
         when (event.action) {
             MotionEvent.ACTION_DOWN,
@@ -324,7 +257,8 @@ class MyModelViewer(
             MotionEvent.ACTION_CANCEL,
             MotionEvent.ACTION_UP -> coinAngularVelocity = defaultVelocity
         }
-        gestureDetector.onTouchEvent(event)
+        orbitGestureDetector.onTouchEvent(event)
+        flingGestureDetector.onTouchEvent(event)
     }
 
     private val transform = FloatArray(16)
@@ -370,7 +304,6 @@ class MyModelViewer(
         override fun onNativeWindowChanged(surface: Surface) {
             swapChain?.let { engine.destroySwapChain(it) }
             swapChain = engine.createSwapChain(surface)
-            surfaceView?.let { displayHelper.attach(renderer, it.display) }
             textureView?.let { displayHelper.attach(renderer, it.display) }
         }
 
@@ -401,6 +334,6 @@ class MyModelViewer(
     }
 
     companion object {
-        private val kDefaultObjectPosition = Float3(0.0f, 0.0f, -4.0f)
+        private val kDefaultObjectPosition = Float3(0.0f, 0.0f, 0f)
     }
 }

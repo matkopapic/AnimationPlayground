@@ -7,7 +7,7 @@ import com.google.android.filament.utils.Manipulator
 import com.google.android.filament.utils.mix
 import java.util.ArrayList
 
-class MyGestureDetector(private val view: View, private val manipulator: Manipulator) {
+class OrbitGestureDetector(private val view: View, private val manipulator: Manipulator) {
     private enum class Gesture { NONE, ORBIT }
 
     // Simplified memento of MotionEvent, minimal but sufficient for our purposes.
@@ -25,7 +25,7 @@ class MyGestureDetector(private val view: View, private val manipulator: Manipul
             }
         }
         val midpoint get() = mix(pt0, pt1, 0.5f)
-        val x: Int get() = midpoint.x.toInt() / 4
+        val x: Int get() = midpoint.x.toInt() / 8
         val y: Int get() = midpoint.y.toInt()
     }
 
